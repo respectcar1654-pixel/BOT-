@@ -4,7 +4,9 @@ import { createClient } from 'redis'
 import express from 'express'
 import dotenv from 'dotenv'
 import { randomUUID } from 'crypto'
+import { v2 as cloudinary } from 'cloudinary'
 dotenv.config()
+cloudinary.config({ secure: true })
 
 const db = new Pool({ connectionString: process.env.DATABASE_URL })
 const redis = createClient({ url: process.env.REDIS_URL })
