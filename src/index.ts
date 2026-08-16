@@ -381,8 +381,13 @@ bot.on('message:photo', async (ctx) => {
     return
   }
 
+  const photo = ctx.message.photo.at(-1)!
+  const dedupKey = `photo_dedup:${userId}:${photo.file_unique_id}`
+  const already = await redis.get(dedupKey)
+  if (already) return
+  await redis.set(dedupKey, '1', { EX: 60 })
+
   try {
-    const photo = ctx.message.photo.at(-1)!
     const file = await ctx.api.getFile(photo.file_id)
     const tgUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`
 
