@@ -386,16 +386,13 @@ bot.on('message:photo', async (ctx) => {
     const photoRes = await fetch(tgUrl)
     const photoBuffer = Buffer.from(await photoRes.arrayBuffer())
 
-    const fd = new FormData()
-    fd.append('photo', new Blob([photoBuffer], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`)
-    fd.append('carId', session.sessionKey)
-
-    const uploadRes = await fetch(`${process.env.SITE_URL}/api/cars/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.UPLOAD_SECRET}` },
-      body: fd,
+    const uploadResult = await new Promise<{secure_url: string}>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: `respect-car/${session.sessionKey}`, resource_type: 'image' },
+        (err, result) => err ? reject(err) : resolve(result as {secure_url: string})
+      ).end(photoBuffer)
     })
-    const { url } = await uploadRes.json() as { url: string }
+    const url = uploadResult.secure_url
 
     session.photos.push(url)
     await redis.set(`addcar:${userId}`, JSON.stringify(session), { EX: 7200 })
