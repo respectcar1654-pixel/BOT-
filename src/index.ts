@@ -389,7 +389,10 @@ bot.on('message:photo', async (ctx) => {
     const uploadResult = await new Promise<{secure_url: string}>((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         { folder: `respect-car/${session.sessionKey}`, resource_type: 'image' },
-        (err, result) => err ? reject(err) : resolve(result as {secure_url: string})
+        (err: Error | undefined, result: {secure_url: string} | undefined) => {
+          if (err) reject(err)
+          else resolve(result!)
+        }
       ).end(photoBuffer)
     })
     const url = uploadResult.secure_url
