@@ -540,20 +540,21 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || ''
 
 app.use(express.json())
 
+// Webhook route — до app.listen
+app.post('/webhook', (req, res) => {
+  bot.handleUpdate(req.body)
+  res.sendStatus(200)
+})
+
 app.listen(PORT, async () => {
   await initDB()
   console.log(`Server on port ${PORT}`)
   
   if (WEBHOOK_URL) {
-    // Production — webhook
+    await bot.init()
     await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`)
-    app.post('/webhook', (req, res) => {
-      bot.handleUpdate(req.body)
-      res.sendStatus(200)
-    })
     console.log(`Webhook set: ${WEBHOOK_URL}/webhook`)
   } else {
-    // Local — polling
     bot.start()
     console.log('Bot started (polling)')
   }
