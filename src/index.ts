@@ -255,6 +255,15 @@ bot.callbackQuery(/^car_delete:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery()
   if (!await isAdmin(ctx.from.id)) return
   const id = ctx.match[1]
+  
+  // Повідомляємо сайт щоб видалив фото
+  try {
+    await fetch(`${process.env.SITE_URL}/api/cars/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${process.env.UPLOAD_SECRET}` },
+    })
+  } catch {}
+  
   await db.query('DELETE FROM cars WHERE id = $1', [id])
   await ctx.reply('🗑 Авто видалено', { reply_markup: adminMenu() })
 })
