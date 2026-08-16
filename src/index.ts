@@ -369,6 +369,7 @@ bot.callbackQuery('kontakty', async (ctx) => {
 
 // Фото від адміна під час /addcar
 bot.on('message:photo', async (ctx) => {
+  console.log('📸 Photo received from:', ctx.from.id)
   const userId = ctx.from.id
   if (!await isAdmin(userId)) return
   const raw = await redis.get(`addcar:${userId}`)
