@@ -389,6 +389,7 @@ bot.on('message:photo', async (ctx) => {
     const photoRes = await fetch(tgUrl)
     const photoBuffer = Buffer.from(await photoRes.arrayBuffer())
 
+    console.log('Uploading to Cloudinary...')
     const uploadResult = await new Promise<{secure_url: string}>((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         { folder: `respect-car/${session.sessionKey}`, resource_type: 'image' },
@@ -398,13 +399,14 @@ bot.on('message:photo', async (ctx) => {
         }
       ).end(photoBuffer)
     })
+    console.log('Cloudinary URL:', uploadResult.secure_url)
     const url = uploadResult.secure_url
 
     session.photos.push(url)
     await redis.set(`addcar:${userId}`, JSON.stringify(session), { EX: 7200 })
     await ctx.reply(`✅ Фото ${session.photos.length}/10 збережено. Надішліть ще або /done`)
   } catch (err) {
-    console.error('Photo upload error:', err)
+    console.error('Photo upload error:', JSON.stringify(err))
     await ctx.reply('❌ Помилка завантаження фото. Спробуйте ще раз.')
   }
 })
