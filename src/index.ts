@@ -387,6 +387,16 @@ bot.on('message:photo', async (ctx) => {
   if (already) return
   await redis.set(dedupKey, '1', { EX: 60 })
 
+  // Mutex — чекаємо поки інше фото не завершить запис в Redis
+  const lockKey = `photo_lock:${userId}`
+  let locked = true
+  let attempts = 0
+  while (locked && attempts < 20) {
+    const lock = await redis.set(lockKey, '1', { NX: true, EX: 10 })
+    if (lock) { locked = false } else { await new Promise(r => setTimeout(r, 200)); attempts++ }
+  }
+  if (locked) return
+
   try {
     const file = await ctx.api.getFile(photo.file_id)
     const tgUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`
@@ -407,10 +417,15 @@ bot.on('message:photo', async (ctx) => {
     console.log('Cloudinary URL:', uploadResult.secure_url)
     const url = uploadResult.secure_url
 
-    session.photos.push(url)
-    await redis.set(`addcar:${userId}`, JSON.stringify(session), { EX: 7200 })
-    await ctx.reply(`✅ Фото ${session.photos.length}/10 збережено. Надішліть ще або /done`)
+    // Перечитуємо сесію після upload щоб не перезаписати інші фото
+    const freshRaw = await redis.get(`addcar:${userId}`)
+    const freshSession: AddCarSession = freshRaw ? JSON.parse(freshRaw) : session
+    freshSession.photos.push(url)
+    await redis.set(`addcar:${userId}`, JSON.stringify(freshSession), { EX: 7200 })
+    await redis.del(lockKey)
+    await ctx.reply(`✅ Фото ${freshSession.photos.length}/10 збережено. Надішліть ще або /done`)
   } catch (err) {
+    await redis.del(lockKey)
     console.error('Photo upload error:', JSON.stringify(err))
     await ctx.reply('❌ Помилка завантаження фото. Спробуйте ще раз.')
   }
