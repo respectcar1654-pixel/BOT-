@@ -84,6 +84,7 @@ function mainMenu() {
 function adminMenu() {
   return new InlineKeyboard()
     .text('🚗 Додати авто', 'admin_addcar').row()
+    .text('✏️ Редагувати авто', 'admin_editcar').row()
     .text('🗑 Мої авто', 'admin_cars').row()
     .text('📋 Всі заявки', 'admin_list').row()
     .text('➕ Додати адміна', 'admin_add').row()
@@ -431,6 +432,89 @@ bot.on('message:photo', async (ctx) => {
   }
 })
 
+
+// ── РЕДАКТОР АВТО ──────────────────────────────────────────
+
+// Список авто для редагування
+bot.callbackQuery('admin_editcar', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const res = await db.query('SELECT id, title, price FROM cars WHERE is_active = true ORDER BY id DESC LIMIT 20')
+  if (res.rows.length === 0) {
+    await ctx.reply('🚗 Авто ще немає.', { reply_markup: adminMenu() })
+    return
+  }
+  const kb = new InlineKeyboard()
+  for (const car of res.rows) {
+    kb.text(`${car.title} — ${car.price}`, `edit_car:${car.id}`).row()
+  }
+  await ctx.reply('✏️ *Оберіть авто для редагування:*', { parse_mode: 'Markdown', reply_markup: kb })
+})
+
+// Меню редагування конкретного авто
+bot.callbackQuery(/^edit_car:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const carId = ctx.match[1]
+  const res = await db.query('SELECT * FROM cars WHERE id = $1', [carId])
+  if (res.rows.length === 0) { await ctx.reply('❌ Авто не знайдено'); return }
+  const car = res.rows[0]
+
+  const kb = new InlineKeyboard()
+    .text('📝 Назва', `edit_field:${carId}:title`).text('💰 Ціна', `edit_field:${carId}:price`).row()
+    .text('📅 Рік', `edit_field:${carId}:year`).text('🔢 Пробіг', `edit_field:${carId}:mileage`).row()
+    .text('⚙️ Двигун', `edit_field:${carId}:engine`).text('🏷 Категорія', `edit_field:${carId}:category`).row()
+    .text('📄 Опис', `edit_field:${carId}:description`).row()
+    .text('🔄 Змінити все + фото', `edit_full:${carId}`).row()
+    .text('🔄 Змінити все (фото зберегти)', `edit_nophoto:${carId}`).row()
+    .text('◀️ Назад', 'admin_editcar')
+
+  await ctx.reply(
+    `✏️ *${car.title}*
+💰 ${car.price} | 📅 ${car.year} | 🔢 ${car.mileage}
+⚙️ ${car.engine}
+🏷 ${car.category}`,
+    { parse_mode: 'Markdown', reply_markup: kb }
+  )
+})
+
+// Редагування одного поля
+bot.callbackQuery(/^edit_field:(\d+):(\w+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const [carId, field] = [ctx.match[1], ctx.match[2]]
+
+  const fieldNames: Record<string, string> = {
+    title: 'назву', price: 'ціну', year: 'рік', mileage: 'пробіг',
+    engine: 'двигун', category: 'категорію', description: 'опис',
+  }
+
+  await redis.set(`edit_field:${ctx.from.id}`, JSON.stringify({ carId, field }), { EX: 300 })
+  await ctx.reply(`✏️ Введіть нову ${fieldNames[field] || field}:`)
+})
+
+// Змінити все + фото
+bot.callbackQuery(/^edit_full:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const carId = ctx.match[1]
+  const sessionKey = randomUUID().replace(/-/g, '')
+  const session: AddCarSession = { step: 'title', sessionKey, photos: [], editCarId: carId, keepPhotos: false }
+  await redis.set(`addcar:${ctx.from.id}`, JSON.stringify(session), { EX: 7200 })
+  await ctx.reply('📝 *Крок 1/7* — Введіть нову назву авто:', { parse_mode: 'Markdown' })
+})
+
+// Змінити все без фото
+bot.callbackQuery(/^edit_nophoto:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const carId = ctx.match[1]
+  const sessionKey = randomUUID().replace(/-/g, '')
+  const session: AddCarSession = { step: 'title', sessionKey, photos: [], editCarId: carId, keepPhotos: true }
+  await redis.set(`addcar:${ctx.from.id}`, JSON.stringify(session), { EX: 7200 })
+  await ctx.reply('📝 *Крок 1/7* — Введіть нову назву авто:', { parse_mode: 'Markdown' })
+})
+
 // Текстові повідомлення
 bot.on('message:text', async (ctx) => {
   const userId = ctx.from.id
@@ -463,6 +547,16 @@ bot.on('message:text', async (ctx) => {
     } else {
       await ctx.reply(nextStep.prompt, { parse_mode: 'Markdown' })
     }
+    return
+  }
+
+  // Перевіряємо чи адмін редагує поле авто
+  const editFieldRaw = await redis.get(`edit_field:${userId}`)
+  if (editFieldRaw && await isAdmin(userId)) {
+    const { carId, field } = JSON.parse(editFieldRaw)
+    await db.query(`UPDATE cars SET ${field} = $1 WHERE id = $2`, [text, carId])
+    await redis.del(`edit_field:${userId}`)
+    await ctx.reply(`✅ *${field}* оновлено!`, { parse_mode: 'Markdown', reply_markup: adminMenu() })
     return
   }
 
