@@ -491,9 +491,25 @@ app.post('/api/contact', async (req, res) => {
 })
 
 const PORT = process.env.PORT || 3000
+const WEBHOOK_URL = process.env.WEBHOOK_URL || ''
+
+app.use(express.json())
+
 app.listen(PORT, async () => {
   await initDB()
   console.log(`Server on port ${PORT}`)
-  bot.start()
-  console.log('Bot started')
+  
+  if (WEBHOOK_URL) {
+    // Production — webhook
+    await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`)
+    app.post('/webhook', (req, res) => {
+      bot.handleUpdate(req.body)
+      res.sendStatus(200)
+    })
+    console.log(`Webhook set: ${WEBHOOK_URL}/webhook`)
+  } else {
+    // Local — polling
+    bot.start()
+    console.log('Bot started (polling)')
+  }
 })
