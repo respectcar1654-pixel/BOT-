@@ -122,6 +122,8 @@ interface AddCarSession {
   description?: string
   category?: string
   photos: string[]
+  editCarId?: string
+  keepPhotos?: boolean
 }
 
 const ADDCAR_STEPS: Record<string, { next: AddCarSession['step'] | null; prompt: string }> = {
