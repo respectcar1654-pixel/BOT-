@@ -379,7 +379,7 @@ bot.on('message:photo', async (ctx) => {
 
     const fd = new FormData()
     fd.append('photo', new Blob([photoBuffer], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`)
-    fd.append('sessionKey', session.sessionKey)
+    fd.append('carId', session.sessionKey)
 
     const uploadRes = await fetch(`${process.env.SITE_URL}/api/cars/upload`, {
       method: 'POST',
