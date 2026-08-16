@@ -81,6 +81,8 @@ function mainMenu() {
 
 function adminMenu() {
   return new InlineKeyboard()
+    .text('🚗 Додати авто', 'admin_addcar').row()
+    .text('🗑 Мої авто', 'admin_cars').row()
     .text('📋 Всі заявки', 'admin_list').row()
     .text('➕ Додати адміна', 'admin_add').row()
     .text('👥 Список адмінів', 'admin_admins')
@@ -212,6 +214,49 @@ bot.callbackQuery(/^del_car:(\d+)$/, async (ctx) => {
 bot.command('admin', async (ctx) => {
   if (!await isAdmin(ctx.from!.id)) return
   await ctx.reply('⚙️ *Адмін панель*', { parse_mode: 'Markdown', reply_markup: adminMenu() })
+})
+
+// Додати авто через кнопку
+bot.callbackQuery('admin_addcar', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  await ctx.api.sendMessage(ctx.from.id, '/addcar')
+  ctx.reply('Використайте команду /addcar')
+})
+
+// Список авто адміна
+bot.callbackQuery('admin_cars', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const res = await db.query('SELECT id, title, price, is_active FROM cars ORDER BY created_at DESC LIMIT 10')
+  if (res.rows.length === 0) {
+    await ctx.reply('🚗 Авто ще немає. Додайте через /addcar')
+    return
+  }
+  const kb = new InlineKeyboard()
+  for (const car of res.rows) {
+    kb.text(`${car.is_active ? '✅' : '❌'} ${car.title} — ${car.price}`, `car_toggle:${car.id}`).row()
+    kb.text(`🗑 Видалити`, `car_delete:${car.id}`).row()
+  }
+  await ctx.reply('🚗 *Список авто:*', { parse_mode: 'Markdown', reply_markup: kb })
+})
+
+// Перемикач активності авто
+bot.callbackQuery(/^car_toggle:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const id = ctx.match[1]
+  await db.query('UPDATE cars SET is_active = NOT is_active WHERE id = $1', [id])
+  await ctx.reply('✅ Статус авто оновлено', { reply_markup: adminMenu() })
+})
+
+// Видалити авто
+bot.callbackQuery(/^car_delete:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  const id = ctx.match[1]
+  await db.query('DELETE FROM cars WHERE id = $1', [id])
+  await ctx.reply('🗑 Авто видалено', { reply_markup: adminMenu() })
 })
 
 // Список заявок
