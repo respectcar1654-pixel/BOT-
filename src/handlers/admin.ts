@@ -273,7 +273,8 @@ export function registerAdminHandlers(bot: Bot) {
     if (!raw) return
     const session: AddCarSession = JSON.parse(raw)
     if (session.step !== 'photos') return
-    if (session.photos.length >= 10) { await ctx.reply('⚠️ Максимум 10 фото. Надішліть /done щоб зберегти.'); return }
+    const currentCount = await redis.lLen(`photos_list:${userId}`)
+    if (currentCount >= 10) { await ctx.reply('⚠️ Максимум 10 фото. Надішліть /done щоб зберегти.'); return }
 
     const photo = ctx.message.photo.at(-1)!
 
@@ -297,11 +298,10 @@ export function registerAdminHandlers(bot: Bot) {
         ).end(photoBuffer)
       })
 
-      // Атомарно додаємо URL в Redis LIST
+      // Атомарно додаємо URL в Redis LIST — rPush повертає новий розмір (без race condition)
       const listKey = `photos_list:${userId}`
-      await redis.rPush(listKey, uploadResult.secure_url)
+      const count = await redis.rPush(listKey, uploadResult.secure_url)
       await redis.expire(listKey, 7200)
-      const count = await redis.lLen(listKey)
 
       // Синхронізуємо сесію з поточним списком фото
       const freshRaw = await redis.get(`addcar:${userId}`)
