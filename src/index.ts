@@ -4,9 +4,8 @@ import dotenv from 'dotenv'
 import { v2 as cloudinary } from 'cloudinary'
 import rateLimit from 'express-rate-limit'
 import { initDB } from './services/db'
-import { redis } from './services/redis'
 import { isAdmin } from './middleware/auth'
-import { mainMenu, adminMenu } from './handlers/menus'
+import { mainMenu, adminMenu, ADMIN_HELP_TEXT } from './handlers/menus'
 import { registerClientHandlers } from './handlers/client'
 import { registerAdminHandlers } from './handlers/admin'
 
@@ -21,21 +20,46 @@ cloudinary.config({
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!)
 
-// /start
+// /start — клієнтське меню для всіх
 bot.command('start', async (ctx) => {
   const name = ctx.from?.first_name || 'друже'
-  const admin = await isAdmin(ctx.from!.id)
-  if (admin) {
-    await ctx.reply(
-      `👋 Вітаємо, ${name}!\n\n⚙️ *Адмін панель Respect Car*`,
-      { parse_mode: 'Markdown', reply_markup: adminMenu() }
-    )
-  } else {
-    await ctx.reply(
-      `👋 Вітаємо, ${name}!\n\nЯ бот автомайданчику *Respect Car*\nХарків, вул. Валентинівська, 12\n\nОберіть послугу:`,
-      { parse_mode: 'Markdown', reply_markup: mainMenu() }
-    )
+  await ctx.reply(
+    `👋 Вітаємо, ${name}!\n\nЯ бот автомайданчику *Respect Car*\nХарків, вул. Валентинівська, 12\n\nОберіть послугу:`,
+    { parse_mode: 'Markdown', reply_markup: mainMenu() }
+  )
+})
+
+// /admin — тільки для адмінів
+bot.command('admin', async (ctx) => {
+  if (!await isAdmin(ctx.from!.id)) {
+    await ctx.reply('⛔️ Доступ заборонено')
+    return
   }
+  const name = ctx.from?.first_name || 'адміне'
+  await ctx.reply(
+    `⚙️ *Адмін панель Respect Car*\n\nВітаємо, ${name}!`,
+    { parse_mode: 'Markdown', reply_markup: adminMenu() }
+  )
+})
+
+// Кнопка "Меню клієнта" в адмін панелі
+bot.callbackQuery('admin_client_menu', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  await ctx.reply(
+    '👤 *Меню клієнта*\n\nОберіть послугу:',
+    { parse_mode: 'Markdown', reply_markup: mainMenu() }
+  )
+})
+
+// Кнопка "Інструкція"
+bot.callbackQuery('admin_help', async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!await isAdmin(ctx.from.id)) return
+  await ctx.reply(ADMIN_HELP_TEXT, {
+    parse_mode: 'Markdown',
+    reply_markup: adminMenu(),
+  })
 })
 
 registerAdminHandlers(bot)
@@ -87,9 +111,25 @@ app.post('/webhook', webhookLimiter, (req, res) => {
 app.listen(PORT, async () => {
   await initDB()
   console.log(`Server on port ${PORT}`)
+
   if (WEBHOOK_URL) {
     await bot.init()
     await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`, { secret_token: WEBHOOK_SECRET || undefined })
+
+    // Команди для звичайних юзерів (глобальні)
+    await bot.api.setMyCommands([
+      { command: 'start', description: '🏠 Головне меню' },
+    ])
+
+    // Команди для адмінів (через BotFather scope)
+    await bot.api.setMyCommands([
+      { command: 'start', description: '🏠 Головне меню клієнта' },
+      { command: 'admin', description: '⚙️ Адмін панель' },
+      { command: 'addcar', description: '🚗 Додати авто в каталог' },
+      { command: 'deletecars', description: '🗑 Видалити авто зі списку' },
+      { command: 'done', description: '✅ Завершити додавання авто' },
+    ], { scope: { type: 'all_private_chats' } })
+
     console.log(`Webhook set: ${WEBHOOK_URL}/webhook`)
   } else {
     bot.start()
