@@ -44,6 +44,7 @@ export function registerAdminHandlers(bot: Bot) {
     if (!await isAdmin(ctx.from!.id)) return
     const sessionKey = randomUUID().replace(/-/g, '')
     const session: AddCarSession = { step: 'title', sessionKey, photos: [] }
+    await redis.del(`photos_list:${ctx.from!.id}`)
     await redis.set(`addcar:${ctx.from!.id}`, JSON.stringify(session), { EX: 7200 })
     await ctx.reply('🚗 *Додати авто у каталог*\n\n*Крок 1/7* — Введіть назву авто:\n_Наприклад: BMW X5 2022_', { parse_mode: 'Markdown' })
   })
@@ -67,6 +68,7 @@ export function registerAdminHandlers(bot: Bot) {
           : [session.title, session.price, session.year||'', session.mileage||'', session.engine||'', session.description||'', session.category||'sedan', session.photos, session.editCarId]
       )
       await redis.del(`addcar:${userId}`)
+      await redis.del(`photos_list:${userId}`)
       await ctx.reply(`✅ *Авто оновлено!*\n\n🚗 ${session.title}`, { parse_mode: 'Markdown', reply_markup: adminMenu() })
       return
     }
@@ -77,6 +79,7 @@ export function registerAdminHandlers(bot: Bot) {
       [session.title, session.price, session.year||'', session.mileage||'', session.engine||'', session.description||'', session.photos, session.category||'sedan']
     )
     await redis.del(`addcar:${userId}`)
+      await redis.del(`photos_list:${userId}`)
     await ctx.reply(
       `✅ *Авто додано!*\n\n🚗 ${session.title}\n💰 ${session.price}\n📸 ${session.photos.length} фото\n🆔 ID: ${result.rows[0].id}`,
       { parse_mode: 'Markdown' }
@@ -273,17 +276,11 @@ export function registerAdminHandlers(bot: Bot) {
     if (session.photos.length >= 10) { await ctx.reply('⚠️ Максимум 10 фото. Надішліть /done щоб зберегти.'); return }
 
     const photo = ctx.message.photo.at(-1)!
+
+    // Дедуплікація — ігноруємо повторні події для того ж фото
     const dedupKey = `photo_dedup:${userId}:${photo.file_unique_id}`
     if (await redis.get(dedupKey)) return
     await redis.set(dedupKey, '1', { EX: 60 })
-
-    const lockKey = `photo_lock:${userId}`
-    let locked = true, attempts = 0
-    while (locked && attempts < 20) {
-      const lock = await redis.set(lockKey, '1', { NX: true, EX: 10 })
-      if (lock) { locked = false } else { await new Promise(r => setTimeout(r, 200)); attempts++ }
-    }
-    if (locked) return
 
     try {
       const file = await ctx.api.getFile(photo.file_id)
@@ -300,14 +297,24 @@ export function registerAdminHandlers(bot: Bot) {
         ).end(photoBuffer)
       })
 
+      // Атомарно додаємо URL в Redis LIST
+      const listKey = `photos_list:${userId}`
+      await redis.rPush(listKey, uploadResult.secure_url)
+      await redis.expire(listKey, 7200)
+      const count = await redis.lLen(listKey)
+
+      // Синхронізуємо сесію з поточним списком фото
       const freshRaw = await redis.get(`addcar:${userId}`)
-      const freshSession: AddCarSession = freshRaw ? JSON.parse(freshRaw) : session
-      freshSession.photos.push(uploadResult.secure_url)
-      await redis.set(`addcar:${userId}`, JSON.stringify(freshSession), { EX: 7200 })
-      await redis.del(lockKey)
-      await ctx.reply(`✅ Фото ${freshSession.photos.length}/10 збережено. Надішліть ще або /done`)
+      if (freshRaw) {
+        const freshSession: AddCarSession = JSON.parse(freshRaw)
+        const allPhotos = await redis.lRange(listKey, 0, -1)
+        freshSession.photos = allPhotos
+        await redis.set(`addcar:${userId}`, JSON.stringify(freshSession), { EX: 7200 })
+      }
+
+      await ctx.reply(`✅ Фото ${count}/10 збережено. Надішліть ще або /done`)
     } catch (err) {
-      await redis.del(lockKey)
+      console.error('Photo upload error:', err)
       await ctx.reply('❌ Помилка завантаження фото. Спробуйте ще раз.')
     }
   })
