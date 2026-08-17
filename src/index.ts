@@ -556,6 +556,12 @@ bot.on('message:text', async (ctx) => {
   const editFieldRaw = await redis.get(`edit_field:${userId}`)
   if (editFieldRaw && await isAdmin(userId)) {
     const { carId, field } = JSON.parse(editFieldRaw)
+    const ALLOWED_FIELDS = ['title', 'price', 'year', 'mileage', 'engine', 'category', 'description']
+    if (!ALLOWED_FIELDS.includes(field)) {
+      await redis.del(`edit_field:${userId}`)
+      await ctx.reply('❌ Недозволене поле')
+      return
+    }
     await db.query(`UPDATE cars SET ${field} = $1 WHERE id = $2`, [text, carId])
     await redis.del(`edit_field:${userId}`)
     await ctx.reply(`✅ *${field}* оновлено!`, { parse_mode: 'Markdown', reply_markup: adminMenu() })
