@@ -677,7 +677,13 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || ''
 app.use(express.json())
 
 // Webhook route — до app.listen
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || ''
+
 app.post('/webhook', (req, res) => {
+  if (WEBHOOK_SECRET) {
+    const token = req.headers['x-telegram-bot-api-secret-token']
+    if (token !== WEBHOOK_SECRET) { res.sendStatus(403); return }
+  }
   bot.handleUpdate(req.body)
   res.sendStatus(200)
 })
@@ -688,7 +694,7 @@ app.listen(PORT, async () => {
   
   if (WEBHOOK_URL) {
     await bot.init()
-    await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`)
+    await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`, { secret_token: WEBHOOK_SECRET || undefined })
     console.log(`Webhook set: ${WEBHOOK_URL}/webhook`)
   } else {
     bot.start()
