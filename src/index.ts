@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from 'grammy'
 import { Pool } from 'pg'
 import { createClient } from 'redis'
 import express from 'express'
+import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
 import { randomUUID } from 'crypto'
 import { v2 as cloudinary } from 'cloudinary'
@@ -651,8 +652,12 @@ bot.on('message:text', async (ctx) => {
 // Express
 const app = express()
 app.use(express.json())
+
+const contactLimiter = rateLimit({ windowMs: 60_000, max: 5, message: { error: 'Забагато запитів. Спробуйте через хвилину.' } })
+const webhookLimiter = rateLimit({ windowMs: 1_000, max: 30 })
+
 app.get('/health', (_, res) => res.json({ status: 'ok' }))
-app.post('/api/contact', async (req, res) => {
+app.post('/api/contact', contactLimiter, async (req, res) => {
   try {
     const { name, phone, message } = req.body
     if (!name || !phone) return res.status(400).json({ error: 'Missing fields' })
@@ -674,12 +679,11 @@ app.post('/api/contact', async (req, res) => {
 const PORT = process.env.PORT || 3000
 const WEBHOOK_URL = process.env.WEBHOOK_URL || ''
 
-app.use(express.json())
 
 // Webhook route — до app.listen
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || ''
 
-app.post('/webhook', (req, res) => {
+app.post('/webhook', webhookLimiter, (req, res) => {
   if (WEBHOOK_SECRET) {
     const token = req.headers['x-telegram-bot-api-secret-token']
     if (token !== WEBHOOK_SECRET) { res.sendStatus(403); return }
